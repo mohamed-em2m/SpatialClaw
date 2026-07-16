@@ -371,23 +371,24 @@ setup_third_party() {
     SAM3_CHECKPOINT="$SAM3_WEIGHTS_DIR/sam3.1_multiplex.pt"
     SAM3_BPE="$SAM3_WEIGHTS_DIR/bpe_simple_vocab_16e6.txt.gz"
     SAM3_BPE_SRC="$THIRD_PARTY/sam3/sam3/assets/bpe_simple_vocab_16e6.txt.gz"
-
+    
     if [ -f "$SAM3_CHECKPOINT" ]; then
         ok "SAM3.1 checkpoint already present"
     else
         mkdir -p "$SAM3_WEIGHTS_DIR"
         info "Downloading SAM3.1 weights from huggingface.co/facebook/sam3.1..."
         info "(Requires HuggingFace login and license acceptance)"
-        if command -v huggingface-cli &>/dev/null; then
-            huggingface-cli download facebook/sam3.1 \
+        /usr/bin/python3 -m pip install -U huggingface_hub
+        if command -v hf &>/dev/null; then
+            hf download facebook/sam3.1 \
                 --local-dir "$SAM3_WEIGHTS_DIR" \
                 --include "*.pt" "*.txt.gz" || {
                 warn "SAM3.1 download failed. You may need to:"
                 warn "  1. Accept the license at https://huggingface.co/facebook/sam3.1"
-                warn "  2. Run: huggingface-cli login"
+                warn "  2. Run: hf login"
             }
         else
-            warn "huggingface-cli not found — install with: pip install huggingface-hub"
+            warn "hf not found — install with: pip install huggingface-hub"
         fi
     fi
 
