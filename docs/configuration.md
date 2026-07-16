@@ -27,7 +27,7 @@ Loading priority (highest first): **CLI args > Model/Dataset JSON > Environment 
 }
 ```
 
-* `llm_base_url: "vllm"` — auto-discover endpoints from `spatial_agent/logs/serve.json` (load-balanced, sticky-session for prefix cache hits). With this base URL, **`llm_model` must be the `served_name`** from `vllm_manager/models.json` (e.g. `qwen3.5-397b-a17b`), **not** the HuggingFace path.
+* `llm_base_url: "vllm"` — auto-discover endpoints from `spatial_agent/logs/serve.json` (load-balanced, sticky-session for prefix cache hits). With this base URL, **`llm_model` must be the `served_name`** from either `vllm_manager/models.json` or `llama_cpp/models.json` (e.g. `qwen3.5-397b-a17b`, `gemma-4-26b-a4b`), **not** the HuggingFace path. Both vLLM and llama.cpp backends register in the same `serve.json` with the same schema, so the agent discovers them identically.
 * `llm_base_url: "https://..."` — call any OpenAI-compatible HTTP endpoint. Here `llm_model` is whatever model identifier that endpoint expects (e.g. `gcp/google/gemini-3-pro`).
 * `llm_api_key` accepts `${ENV_VAR}` and `${ENV_VAR:-default}` substitution; secrets stay in `.env` (see [Installation → API Keys](installation.md#api-keys--env)).
 * `roles.*` — per-role hyperparameters (`main`, `planning`, `vlm`, `vlm_grounding`, `general`, `reflection`).

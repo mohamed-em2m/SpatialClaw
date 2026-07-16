@@ -378,7 +378,7 @@ setup_third_party() {
         mkdir -p "$SAM3_WEIGHTS_DIR"
         info "Downloading SAM3.1 weights from huggingface.co/facebook/sam3.1..."
         info "(Requires HuggingFace login and license acceptance)"
-        /usr/bin/python3 -m pip install -U huggingface_hub
+        uv pip install -U huggingface_hub
         if command -v hf &>/dev/null; then
             hf download facebook/sam3.1 \
                 --local-dir "$SAM3_WEIGHTS_DIR" \
@@ -411,7 +411,7 @@ setup_third_party() {
 # ---------------------------------------------------------------------------
 setup_dirs() {
     info "Creating log directories..."
-    mkdir -p "$PROJECT_ROOT/spatial_agent/logs"/{slurm_vllm,slurm_agent,slurm_cot,slurm_gpu_server}
+    mkdir -p "$PROJECT_ROOT/spatial_agent/logs"/{slurm_vllm,slurm_agent,slurm_cot,slurm_gpu_server,slurm_llama_cpp}
     ok "Directories ready"
 }
 

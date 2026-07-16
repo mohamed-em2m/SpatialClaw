@@ -41,7 +41,7 @@ Spatial reasoning — the ability to determine where objects are, how they relat
 
 </details>
 
-> 🔍 **What this repo contains.** This is the **official implementation** of the paper. It includes the full agent runtime (LangGraph workflow, persistent Jupyter kernel, AST safety check, planning/reflection loops), all 20 benchmark loaders, perception tool wrappers, a FastAPI-served GPU tool server, vLLM auto-discovery and load balancing, and the SLURM launch managers used to reproduce every experiment in the paper.
+> 🔍 **What this repo contains.** This is the **official implementation** of the paper. It includes the full agent runtime (LangGraph workflow, persistent Jupyter kernel, AST safety check, planning/reflection loops), all 20 benchmark loaders, perception tool wrappers, a FastAPI-served GPU tool server, vLLM auto-discovery and load balancing, a **llama.cpp backend for GGUF-quantized models**, and the SLURM launch managers used to reproduce every experiment in the paper.
 
 ---
 
@@ -53,7 +53,7 @@ For every sample, SpatialClaw runs a **five-stage loop** on top of a persistent 
   <img src="https://raw.githubusercontent.com/SpatialClaw/spatialclaw.github.io/main/static/images/method_loop.png" width="85%" alt="SpatialClaw five-stage agentic loop" />
 </p>
 
-At runtime, three independent services — a **vLLM backbone**, a **GPU perception-tool server** (Reconstruct / SAM3), and the **agent** (Jupyter kernels) — coordinate through shared JSON registries and survive SLURM job-time limits via auto-restarting chain jobs. No SLURM cluster? Each service is also a plain Python entry point you can run on any GPU machine.
+At runtime, three independent services — an **LLM backbone** (vLLM or llama.cpp), a **GPU perception-tool server** (Reconstruct / SAM3), and the **agent** (Jupyter kernels) — coordinate through shared JSON registries and survive SLURM job-time limits via auto-restarting chain jobs. No SLURM cluster? Each service is also a plain entry point you can run on any GPU machine.
 
 ➡ Full details: **[docs/architecture.md](docs/architecture.md)**
 

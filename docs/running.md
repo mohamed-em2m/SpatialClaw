@@ -12,11 +12,12 @@ All commands run from the project root (`SpatialClaw/`) with `conda activate spa
 
 > Skip this section if you're running on a single machine without SLURM.
 
-The shipped configs reference one specific cluster's partitions and accounts. Before submitting jobs, **edit these three files** to match your cluster:
+The shipped configs reference one specific cluster's partitions and accounts. Before submitting jobs, **edit these files** to match your cluster:
 
 | File | Fields to update |
 |------|------------------|
 | `spatial_agent/launch_managers/vllm_manager/models.json` | top-level `accounts`, and `partition` field of each model entry |
+| `spatial_agent/launch_managers/llama_cpp/models.json` | top-level `accounts`, and `partition` field of each model entry |
 | `spatial_agent/launch_managers/agent_manager/config.json` | `accounts`, `default_slurm.partition` (agents themselves are CPU-only) |
 | `spatial_agent/launch_managers/gpu_server_manager/config.json` | `accounts`, `default_slurm.partition` |
 
@@ -102,15 +103,21 @@ Pick the backend at launch time via `--reconstruct_backend {pi3,da3,mapanything}
 
 ## Launching a Run
 
-The three services are launched by **three independent managers** — start them in order: vLLM → GPU tool server → agent.
+The three services are launched by **three independent managers** — start them in order: LLM server (vLLM or llama.cpp) → GPU tool server → agent.
 
 ### Quickstart via launch managers (recommended)
 
 ```bash
-# Terminal 1 — start a vLLM server (interactive menu)
+# Terminal 1 — start an LLM server (interactive menu)
+# Option A: vLLM (full FP8/AWQ throughput, H100 recommended)
 python -m spatial_agent.launch_managers.vllm_manager
 #   [1] Dashboard   [2] Start Server   [3] Stop Server   [q] Quit
 # Pick [2], then choose the model, account, partition, and confirm.
+
+# Option B: llama.cpp (GGUF-quantized, lower VRAM, GPU-flexible)
+python -m spatial_agent.launch_managers.llama_cpp
+#   [1] Dashboard   [2] Start Server   [3] Stop Server   [q] Quit
+# Pick [2], then choose the model and port.
 
 # Terminal 2 — start the GPU tool server
 python -m spatial_agent.launch_managers.gpu_server_manager
@@ -122,6 +129,21 @@ python -m spatial_agent.launch_managers.agent_manager
 #   [1] Dashboard   [2] Start Agent Experiment(s)   [3] Start CoT Experiment(s)   [4] Stop   [q] Quit
 # Pick [2], then choose benchmark(s), model, concurrency, and confirm.
 ```
+
+> Both LLM backends register in `spatial_agent/logs/serve.json` with the same schema, so the agent auto-discovers them identically. Use **llama.cpp** when you need GGUF-quantized models (lower VRAM) or want to serve models not supported by vLLM. Use **vLLM** when maximum throughput with FP8/AWQ is required.
+
+### SLURM chain mode (llama.cpp)
+
+For long-running evaluations that must survive SLURM job time limits, use the llama.cpp chain manager to submit 4-hour rolling jobs:
+
+```bash
+python spatial_agent/scripts/llama_cpp/manager.py \
+    --model "unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ2_M" \
+    --port 8081 \
+    --gpus 2
+```
+
+This submits a continuous chain of SLURM jobs with a 20-minute overlap (configurable via `--restart-before`). See `--help` for all options.
 
 Each run is checkpointed and auto-resumes when a 4-hour SLURM job rolls over.
 

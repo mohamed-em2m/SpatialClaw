@@ -72,7 +72,11 @@ conda create -n spatialclaw-cuda -y
 conda install -n spatialclaw-cuda -c nvidia cuda-toolkit=12.8 -y
 ```
 
-### 3. vLLM virtual environment
+### 3. LLM server backends
+
+Choose **one** (or both) depending on the models you want to serve:
+
+#### 3a. vLLM virtual environment (for FP8 / AWQ / GPTQ models)
 
 Pinned to nightly + CUDA 12.9 for Gemma4 support:
 
@@ -89,6 +93,32 @@ uv pip install -U vllm --pre \
 uv pip install transformers==5.5.0 pynvml pandas
 deactivate
 ```
+
+#### 3b. llama.cpp (for GGUF-quantized models)
+
+Build `llama-server` from source with CUDA support. This is the binary used by the llama.cpp launch manager and SLURM chain manager:
+
+```bash
+# Automated install (detects GPU, configures CUDA arch, installs to /usr/local/bin)
+bash scripts/install_llama_cpp.sh
+
+# Or with custom options:
+bash scripts/install_llama_cpp.sh \
+    --cuda-arch 89              # force H100 arch (auto-detected if omitted)
+    --prefix ~/.local/bin       # user-local install
+    --targets "llama-server"    # build only the server binary
+    -j 32                       # parallel build jobs
+```
+
+The script handles:
+* System dependency installation (cmake, build-essential, curl, etc.)
+* Git clone or update of `github.com/ggml-org/llama.cpp`
+* GPU detection (maps GPU name to CUDA arch: H100→90, A100→80, etc.)
+* CMake configure with `-DGGML_CUDA=ON`
+* Build of `llama-server`, `llama-cli`, `llama-mtmd-cli`, `llama-gguf-split`
+* Installation to the target prefix
+
+To see all options: `bash scripts/install_llama_cpp.sh --help`.
 
 Then build **DeepGEMM** — required by the FP8 model variants used in the paper:
 

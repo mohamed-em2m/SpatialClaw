@@ -51,25 +51,27 @@ The kernel exposes six entry points to the agent:
 The system has three independent services, all managed via SLURM:
 
 ```
-+------------------+       +------------------+       +------------------+
-|   vLLM Server    |       |   GPU Server     |       |   Agent          |
-|  (LLM inference) |       | (DA3, SAM3 tools)|       | (Jupyter kernels)|
-|  .venv (uv)      |       |  conda env       |       |  conda env       |
-|  H100 GPUs       |       |  H100 GPU        |       |  CPU only        |
-+--------+---------+       +--------+---------+       +--------+---------+
-         |                          |                          |
-         |   logs/serve.json        |  logs/gpu_server.json    |
-         +--------------------------+--------------------------+
++---------------------------+       +------------------+       +------------------+
+|   vLLM or llama.cpp      |       |   GPU Server     |       |   Agent          |
+|   (LLM inference)        |       | (DA3, SAM3 tools)|       | (Jupyter kernels)|
+|   .venv (uv) / binary    |       |  conda env       |       |  conda env       |
+|   H100 GPUs              |       |  H100 GPU        |       |  CPU only        |
++--------+-----------------+       +--------+---------+       +--------+---------+
+         |                                  |                          |
+         |   logs/serve.json                |  logs/gpu_server.json    |
+         +----------------------------------+--------------------------+
                     Auto-discovery via shared JSON registries
 ```
 
-* **vLLM Server** — serves the VLM backbone (e.g. Qwen3.5-397B-A17B, Gemma4-31B) via an OpenAI-compatible API.
+* **LLM Server** — serves the VLM backbone (e.g. Qwen3.5-397B-A17B, Gemma4-31B, or GGUF-quantized variants) via an OpenAI-compatible API. Two backends are supported:
+  * **vLLM** (`spatial_agent/launch_managers/vllm_manager/`) — Python-based, supports FP8/AWQ/GPTQ, full H100 throughput, SLURM chain manager with 4-hour rolling jobs.
+  * **llama.cpp** (`spatial_agent/launch_managers/llama_cpp/`, `spatial_agent/scripts/llama_cpp/`) — compiled binary (`llama-server`), supports GGUF-quantized models, lower VRAM footprint, SLURM chain manager with the same 4-hour job pattern.
 * **GPU Server** — runs the heavy perception tools (Depth-Anything-3 / Pi3 reconstruction, SAM3 video segmentation) behind a FastAPI HTTP service.
 * **Agent** — orchestrates the LangGraph loop and spawns a per-sample Jupyter kernel that executes the agent's code.
 
-Each service runs as a chain of 4-hour SLURM jobs with automatic restart and 20-minute overlap, so long evaluations survive job-time limits with zero downtime.
+Both LLM backends register running instances in `spatial_agent/logs/serve.json`, so the agent's `LLMClient` auto-discovers endpoints identically regardless of backend. Each service runs as a chain of 4-hour SLURM jobs with automatic restart and 20-minute overlap, so long evaluations survive job-time limits with zero downtime.
 
-> **Don't have a SLURM cluster?** Each service is also a normal Python entry point (`spatial_agent.entrypoints.launch_vllm`, `launch_gpu_server`, `run`) and can be started directly on any GPU machine — the SLURM managers are convenience wrappers, not requirements.
+> **Don't have a SLURM cluster?** Each service is also a normal Python entry point or binary (`spatial_agent.entrypoints.launch_vllm`, `spatial_agent.scripts.llama_cpp.llama_server_manager`, `launch_gpu_server`, `run`) and can be started directly on any GPU machine — the SLURM managers are convenience wrappers, not requirements.
 
 ---
 
@@ -92,6 +94,7 @@ SpatialClaw/                               # Project root (must be cwd)
 │   │   └── launch_gpu_server.py           #   GPU tool server launcher
 │   ├── launch_managers/                   # Interactive SLURM managers (one per service)
 │   │   ├── vllm_manager/                  #   vLLM servers
+│   │   ├── llama_cpp/                     #   llama.cpp servers (local + SLURM)
 │   │   ├── gpu_server_manager/            #   GPU tool server chains
 │   │   └── agent_manager/                 #   agent + CoT experiment chains
 │   ├── nodes/                             # LangGraph node implementations (planner, executor, reflector, …)
@@ -105,7 +108,15 @@ SpatialClaw/                               # Project root (must be cwd)
 │   ├── gpu_dashboard/                     # SLURM / GPU live-status TUI
 │   ├── logging_utils/                     # Session logging + HTML report writers
 │   ├── requirements/                      # Pinned dependency lists
-│   └── scripts/                           # Setup + helper shell scripts
+│   ├── scripts/
+│   │   ├── vllm/                          #   vLLM SLURM manager + run scripts
+│   │   │   ├── manager.py                 #     SLURM chain manager (4-hour jobs)
+│   │   │   └── run_uv.sh                  #     Inner job execution script
+│   │   ├── llama_cpp/                     #   llama.cpp SLURM manager + run scripts
+│   │   │   ├── manager.py                 #     SLURM chain manager (4-hour jobs)
+│   │   │   ├── run.sh                     #     Inner job execution script
+│   │   │   └── llama_server_manager.py    #     Python server lifecycle manager
+│   │   └── setup.sh                       #   One-shot environment setup
 ├── tools/third_party/                     # Third-party model repos (cloned by setup.sh)
 │   ├── sam3/                              #   SAM3 (+ weights/)
 │   ├── Pi3/                               #   Pi3 reconstruction (alt: --reconstruct_backend pi3)
