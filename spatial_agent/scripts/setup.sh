@@ -157,7 +157,7 @@ setup_vllm() {
         ok "deep_gemm already installed"
     else
         info "Building deep_gemm from source (FP8 kernel support)..."
-        local DG_DIR="$TMPDIR/DeepGEMM"
+        local DG_DIR="${TMPDIR:-/tmp}/DeepGEMM"
         rm -rf "$DG_DIR"
         if git clone --recursive https://github.com/deepseek-ai/DeepGEMM.git "$DG_DIR" 2>/dev/null; then
             local CUDA_HOME_BK="$CUDA_HOME"
