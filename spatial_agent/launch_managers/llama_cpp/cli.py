@@ -89,7 +89,11 @@ class LlamaCPPManagerCLI:
 
     def _ask(self, prompt: str, default: str = "") -> str:
         """Prompt that accepts 'q' to abort. Returns value or raises _Abort."""
-        val = Prompt.ask(f"{prompt} [dim](q to cancel)[/dim]", default=default)
+        try:
+            val = Prompt.ask(f"{prompt} [dim](q to cancel)[/dim]", default=default)
+        except EOFError:
+            self.console.print("[dim]EOF — aborting.[/dim]")
+            raise _Abort()
         if val.strip().lower() == "q":
             raise _Abort()
         return val
