@@ -33,7 +33,6 @@ LLAMA_CPP_BUILD_JOBS="${LLAMA_CPP_BUILD_JOBS:-$(nproc)}"
 LLAMA_INSTALL_BINS=true   # set to false to skip /usr/local/bin install
 
 # scripts/ -> spatial_agent/ -> SpatialAgent/
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REQUIREMENTS_AGENT="$PROJECT_ROOT/spatial_agent/requirements/requirements-agent.txt"
 REQUIREMENTS_VLLM="$PROJECT_ROOT/spatial_agent/requirements/requirements-vllm.txt"
 THIRD_PARTY="$PROJECT_ROOT/tools/third_party"
