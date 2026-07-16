@@ -25,7 +25,7 @@ CONDA_ENV_NAME="spatialagent"
 CUDA_ENV_NAME="spatialclaw-cuda"
 PYTHON_VERSION="3.11"
 CUDA_VERSION="12.8"
-
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # Llama.cpp config
 LLAMA_CPP_REPO="https://github.com/ggml-org/llama.cpp"
 LLAMA_CPP_DIR="$PROJECT_ROOT/tools/third_party/llama.cpp"
