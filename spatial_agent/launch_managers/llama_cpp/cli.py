@@ -55,11 +55,15 @@ class LlamaCPPManagerCLI:
             self.console.print(menu)
             self.console.print()
 
-            choice = Prompt.ask(
-                "[bold]Select",
-                choices=["1", "2", "3", "q"],
-                default="1",
-            )
+            try:
+                choice = Prompt.ask(
+                    "[bold]Select",
+                    choices=["1", "2", "3", "q"],
+                    default="1",
+                )
+            except EOFError:
+                self.console.print("[dim]EOF — exiting.[/dim]")
+                break
 
             if choice == "1":
                 self._show_dashboard()
