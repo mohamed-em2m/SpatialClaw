@@ -1,0 +1,18 @@
+{
+  "models": [
+    {
+      "name": "Gemma-4-26B-A4B-IT-GGUF",
+      "model": "unsloth/gemma-4-26B-A4B-it-GGUF:UD-IQ2_M",
+      "served_name": "gemma-4-26b-a4b",
+      "port": 8081,
+      "is_mtp": true
+    },
+    {
+      "name": "Gemma-4-12B-IT-QAT-GGUF",
+      "model": "unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL",
+      "served_name": "gemma-4-12b-it-qat-gguf",
+      "port": 8082,
+      "is_mtp": true
+    }
+  ]
+}

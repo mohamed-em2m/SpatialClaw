@@ -2,18 +2,20 @@
 # ============================================================================
 # SpatialAgent — Environment Setup Script
 #
-# Creates three environments:
-#   1. spatialagent  (conda)  — agent, managers, GPU server
-#   2. .venv         (uv)     — vLLM inference server
-#   3. spatialclaw-cuda      (conda)  — CUDA shared libraries borrowed by vLLM at runtime
+# Creates three environments + optional llama.cpp build:
+#   1. spatialagent       (conda)  — agent, managers, GPU server
+#   2. .venv              (uv)     — vLLM inference server
+#   3. spatialclaw-cuda   (conda)  — CUDA shared libraries borrowed by vLLM at runtime
+#   4. llama.cpp          (binary) — GGUF inference server built with CUDA support
 #
 # Usage:
-#   bash setup.sh            # full install (all three environments)
-#   bash setup.sh --agent    # agent conda env only
-#   bash setup.sh --vllm     # vLLM .venv only
-#   bash setup.sh --cuda     # spatialclaw-cuda CUDA env only
+#   bash setup.sh              # full install (all three envs + llama.cpp)
+#   bash setup.sh --agent      # agent conda env only
+#   bash setup.sh --vllm       # vLLM .venv only
+#   bash setup.sh --cuda       # spatialclaw-cuda CUDA env only
+#   bash setup.sh --llama      # llama.cpp build only
+#   bash setup.sh --no-llama   # all three envs, skip llama.cpp
 # ============================================================================
-
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
@@ -23,6 +25,12 @@ CONDA_ENV_NAME="spatialagent"
 CUDA_ENV_NAME="spatialclaw-cuda"
 PYTHON_VERSION="3.11"
 CUDA_VERSION="12.8"
+
+# Llama.cpp config
+LLAMA_CPP_REPO="https://github.com/ggml-org/llama.cpp"
+LLAMA_CPP_DIR="$PROJECT_ROOT/tools/third_party/llama.cpp"
+LLAMA_CPP_BUILD_JOBS="${LLAMA_CPP_BUILD_JOBS:-$(nproc)}"
+LLAMA_INSTALL_BINS=true   # set to false to skip /usr/local/bin install
 
 # scripts/ -> spatial_agent/ -> SpatialAgent/
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -216,7 +224,129 @@ setup_cuda() {
 }
 
 # ---------------------------------------------------------------------------
-# 4. Initialize third-party submodules + download model weights
+# 4. llama.cpp — build from source with CUDA support
+#
+# Clones (or updates) the repo into tools/third_party/llama.cpp, builds with
+# GGML_CUDA=ON using the system CUDA toolkit, and optionally installs all
+# resulting binaries to /usr/local/bin so they are on PATH everywhere.
+#
+# Key binaries produced:
+#   llama-cli        — interactive / one-shot GGUF inference
+#   llama-server     — OpenAI-compatible HTTP server (use instead of vLLM for GGUF models)
+#   llama-mtmd-cli   — multimodal (vision) inference
+#   llama-gguf-split — shard / merge GGUF files
+#
+# Environment variables you can override before calling this script:
+#   LLAMA_CPP_DIR        — where to clone/build (default: tools/third_party/llama.cpp)
+#   LLAMA_CPP_BUILD_JOBS — parallel make jobs (default: nproc)
+#   LLAMA_INSTALL_BINS   — set to "false" to skip /usr/local/bin install
+#   CUDA_VISIBLE_DEVICES — restrict which GPUs are used (e.g. "0,1")
+# ---------------------------------------------------------------------------
+setup_llama() {
+    info "=== Setting up llama.cpp (CUDA build) ==="
+
+    # ---- System dependencies -----------------------------------------------
+    info "Installing system build dependencies (cmake, curl, pciutils)..."
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq \
+            pciutils build-essential cmake curl libcurl4-openssl-dev
+    else
+        warn "apt-get not available — ensure cmake, curl, and libcurl4-openssl-dev are installed"
+    fi
+
+    # ---- NVIDIA compute library (driver-agnostic stubs for building) --------
+    # Only install if libcudart is not already findable on the system.
+    if ! ldconfig -p 2>/dev/null | grep -q libcuda; then
+        info "Installing libnvidia-compute stubs (needed to link CUDA at build time)..."
+        # Try versioned packages first; fall back to the unversioned meta-package.
+        sudo apt-get install -y -qq libnvidia-compute-535-server 2>/dev/null \
+            || sudo apt-get install -y -qq libnvidia-compute-535 2>/dev/null \
+            || warn "Could not install libnvidia-compute — CUDA link may fail"
+    else
+        ok "CUDA compute library already present on system"
+    fi
+
+    # ---- Clone or update repo -----------------------------------------------
+    if [ -d "$LLAMA_CPP_DIR/.git" ]; then
+        info "llama.cpp repo found at $LLAMA_CPP_DIR — pulling latest..."
+        git -C "$LLAMA_CPP_DIR" pull --ff-only 2>/dev/null \
+            || warn "git pull failed — continuing with existing checkout"
+    else
+        info "Cloning llama.cpp into $LLAMA_CPP_DIR..."
+        mkdir -p "$(dirname "$LLAMA_CPP_DIR")"
+        git clone "$LLAMA_CPP_REPO" "$LLAMA_CPP_DIR"
+    fi
+
+    # ---- Configure ----------------------------------------------------------
+    info "Configuring CMake (GGML_CUDA=ON, static build)..."
+
+    # Use the CUDA toolkit from the spatialclaw-cuda conda env if available,
+    # otherwise fall back to system CUDA_HOME / nvcc on PATH.
+    local CMAKE_CUDA_ARGS=()
+    local CONDA_CUDA_HOME="$CONDA_BASE/envs/$CUDA_ENV_NAME"
+    if [ -f "$CONDA_CUDA_HOME/bin/nvcc" ]; then
+        info "Using CUDA toolkit from conda env: $CONDA_CUDA_HOME"
+        CMAKE_CUDA_ARGS+=(-DCMAKE_CUDA_COMPILER="$CONDA_CUDA_HOME/bin/nvcc")
+        export CUDA_HOME="$CONDA_CUDA_HOME"
+        export PATH="$CONDA_CUDA_HOME/bin:$PATH"
+        export LD_LIBRARY_PATH="$CONDA_CUDA_HOME/lib:${LD_LIBRARY_PATH:-}"
+    elif command -v nvcc &>/dev/null; then
+        ok "Using system nvcc: $(nvcc --version 2>&1 | grep release | head -1)"
+    else
+        warn "nvcc not found in conda env or on PATH — CUDA build may fail"
+    fi
+
+    cmake "$LLAMA_CPP_DIR" -B "$LLAMA_CPP_DIR/build" \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DGGML_CUDA=ON \
+        "${CMAKE_CUDA_ARGS[@]}"
+
+    # ---- Build --------------------------------------------------------------
+    info "Building llama.cpp targets (jobs: $LLAMA_CPP_BUILD_JOBS)..."
+    cmake --build "$LLAMA_CPP_DIR/build" \
+        --config Release \
+        -j "$LLAMA_CPP_BUILD_JOBS" \
+        --clean-first \
+        --target llama-cli llama-mtmd-cli llama-server llama-gguf-split
+
+    # ---- Verify key binaries ------------------------------------------------
+    local REQUIRED_BINS=(llama-cli llama-server)
+    for bin in "${REQUIRED_BINS[@]}"; do
+        if [ ! -f "$LLAMA_CPP_DIR/build/bin/$bin" ]; then
+            fail "Expected binary not found after build: $LLAMA_CPP_DIR/build/bin/$bin"
+        fi
+    done
+
+    # ---- Install to /usr/local/bin ------------------------------------------
+    if [ "$LLAMA_INSTALL_BINS" = "true" ]; then
+        info "Installing llama.cpp binaries to /usr/local/bin..."
+        local installed=0
+        for bin in "$LLAMA_CPP_DIR/build/bin/"*; do
+            if [ -f "$bin" ]; then
+                sudo install -m 755 "$bin" /usr/local/bin/
+                installed=$((installed + 1))
+            fi
+        done
+        ok "Installed $installed binaries to /usr/local/bin"
+    else
+        info "Skipping /usr/local/bin install (LLAMA_INSTALL_BINS=false)"
+        info "Binaries available at: $LLAMA_CPP_DIR/build/bin/"
+    fi
+
+    # ---- Smoke test ---------------------------------------------------------
+    if command -v llama-cli &>/dev/null; then
+        llama-cli --version 2>/dev/null && ok "llama-cli smoke test passed" \
+            || warn "llama-cli --version returned non-zero (may be normal for some versions)"
+    else
+        warn "llama-cli not on PATH — add $LLAMA_CPP_DIR/build/bin to your PATH or re-run with LLAMA_INSTALL_BINS=true"
+    fi
+
+    ok "llama.cpp build complete"
+}
+
+# ---------------------------------------------------------------------------
+# 5. Initialize third-party submodules + download model weights
 #
 # All third-party model code (SAM3, Pi3, Depth-Anything-3,
 # map-anything) lives under tools/third_party/ as git submodules pinned to
@@ -224,7 +354,6 @@ setup_cuda() {
 # already populates them; this function only fills in submodules that were
 # missed (e.g. someone cloned without --recursive).
 # ---------------------------------------------------------------------------
-
 setup_third_party() {
     info "=== Initializing third-party submodules and weights ==="
 
@@ -278,7 +407,7 @@ setup_third_party() {
 }
 
 # ---------------------------------------------------------------------------
-# 5. Create log directories
+# 6. Create log directories
 # ---------------------------------------------------------------------------
 setup_dirs() {
     info "Creating log directories..."
@@ -302,23 +431,39 @@ main() {
     check_requirements
 
     # Parse arguments
-    local do_agent=false do_vllm=false do_cuda=false
+    local do_agent=false do_vllm=false do_cuda=false do_llama=false
+    local explicit=false
+
     if [ $# -eq 0 ]; then
-        do_agent=true; do_vllm=true; do_cuda=true
+        do_agent=true; do_vllm=true; do_cuda=true; do_llama=true
     else
         for arg in "$@"; do
             case "$arg" in
-                --agent) do_agent=true ;;
-                --vllm)  do_vllm=true ;;
-                --cuda)  do_cuda=true ;;
+                --agent)     do_agent=true;  explicit=true ;;
+                --vllm)      do_vllm=true;   explicit=true ;;
+                --cuda)      do_cuda=true;   explicit=true ;;
+                --llama)     do_llama=true;  explicit=true ;;
+                --no-llama)
+                    # Shorthand: all three envs, no llama.cpp
+                    do_agent=true; do_vllm=true; do_cuda=true
+                    explicit=true
+                    ;;
                 --help|-h)
-                    echo "Usage: bash setup.sh [--agent] [--vllm] [--cuda]"
+                    echo "Usage: bash setup.sh [--agent] [--vllm] [--cuda] [--llama] [--no-llama]"
                     echo ""
-                    echo "  --agent   Set up the spatialagent conda env (agent + managers + GPU server)"
-                    echo "  --vllm    Set up the .venv for vLLM inference server"
-                    echo "  --cuda    Set up the spatialclaw-cuda conda env with CUDA toolkit"
+                    echo "  --agent     Set up the spatialagent conda env (agent + managers + GPU server)"
+                    echo "  --vllm      Set up the .venv for vLLM inference server"
+                    echo "  --cuda      Set up the spatialclaw-cuda conda env with CUDA toolkit"
+                    echo "  --llama     Build llama.cpp with CUDA support (GGUF inference)"
+                    echo "  --no-llama  Set up all three conda/venv envs, skip llama.cpp build"
                     echo ""
-                    echo "  No flags = install all three environments."
+                    echo "  No flags = install all three environments + build llama.cpp."
+                    echo ""
+                    echo "Environment variables:"
+                    echo "  LLAMA_CPP_DIR        Override llama.cpp clone path (default: tools/third_party/llama.cpp)"
+                    echo "  LLAMA_CPP_BUILD_JOBS Parallel build jobs (default: nproc = $(nproc))"
+                    echo "  LLAMA_INSTALL_BINS   Set to 'false' to skip /usr/local/bin install (default: true)"
+                    echo "  CUDA_VISIBLE_DEVICES Restrict GPUs for build/test (e.g. '0,1')"
                     exit 0
                     ;;
                 *) fail "Unknown argument: $arg (try --help)" ;;
@@ -329,6 +474,7 @@ main() {
     $do_agent && setup_agent
     $do_cuda  && setup_cuda
     $do_vllm  && setup_vllm
+    $do_llama && setup_llama
     setup_third_party
     setup_dirs
 
@@ -341,8 +487,16 @@ main() {
     echo "    conda activate spatialagent"
     echo "    cd $PROJECT_ROOT"
     echo ""
-    echo "    # Start a vLLM server"
+    echo "    # Start a vLLM server (PyTorch models)"
     echo "    python -m spatial_agent.launch_managers.vllm_manager"
+    echo ""
+    echo "    # Start a llama.cpp server (GGUF models)"
+    if [ "$do_llama" = true ]; then
+    echo "    llama-server -m /path/to/model.gguf --host 0.0.0.0 --port 8080 -ngl 99"
+    echo ""
+    echo "    # One-shot GGUF inference"
+    echo "    llama-cli -m /path/to/model.gguf -p 'Your prompt here' -ngl 99"
+    fi
     echo ""
     echo "    # Start an agent experiment"
     echo "    python -m spatial_agent.launch_managers.agent_manager"
