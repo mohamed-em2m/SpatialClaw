@@ -13,6 +13,7 @@ class ModelConfig:
     served_name: str
     port: int = 8081
     is_mtp: bool = True
+    partition: str = "batch_singlenode,batch_block1,batch_block3,batch_block4"
 
 
 @dataclass
@@ -39,6 +40,7 @@ def load_config(config_path: Path = None) -> ManagerConfig:
             served_name=m["served_name"],
             port=m.get("port", 8081),
             is_mtp=m.get("is_mtp", True),
+            partition=m.get("partition", "batch_singlenode,batch_block1,batch_block3,batch_block4"),
         ))
 
     return ManagerConfig(models=models)
